@@ -11,7 +11,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Setup Godot & Android
+      - name: Setup Godot & Android SDK
         run: |
           mkdir -p ~/.local/share/godot/export_templates/4.3.stable ~/.android ~/.config/godot $ANDROID_HOME/cmdline-tools build
           curl -sL "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip" -o g.zip && unzip -qo g.zip && mv Godot_v4.3-stable_linux.x86_64 /usr/local/bin/godot && chmod +x /usr/local/bin/godot
@@ -19,12 +19,19 @@ jobs:
           curl -sL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o sdk.zip && unzip -qo sdk.zip -d $ANDROID_HOME/cmdline-tools && mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_HOME "platform-tools" "platforms;android-34" "build-tools;34.0.0" > /dev/null
           keytool -genkeypair -noprompt -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 9999 -dname "CN=Android Debug,O=Android,C=US"
-          printf '[gd_resource type="EditorSettings" format=3]\n\n[resource]\nexport/android/android_sdk_path = "%s"\nexport/android/debug_keystore = "%s/.android/debug.keystore"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' "$ANDROID_HOME" "$HOME" > ~/.config/godot/editor_settings-4.3.tres
-      - name: Export APK
+          cat <<EOF > ~/.config/godot/editor_settings-4.3.tres
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_HOME"
+          export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+      - name: Import & Export APK
         run: |
-          godot --headless --verbose --export-debug "Android" build/Game.apk || true
-          ls -la build/
-          test -f build/Game.apk
+          godot --headless --import
+          godot --headless --export-debug "Android" build/Game.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Game-APK
