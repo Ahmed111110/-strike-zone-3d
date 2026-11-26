@@ -93,21 +93,82 @@ jobs:
           package com.abusoliman.strikezone;
 
           import android.app.Activity;
+          import android.content.Context;
+          import android.graphics.Canvas;
           import android.graphics.Color;
+          import android.graphics.Paint;
+          import android.graphics.RectF;
           import android.os.Bundle;
+          import android.os.Handler;
+          import android.os.Looper;
           import android.view.Gravity;
+          import android.view.MotionEvent;
+          import android.view.View;
           import android.widget.Button;
+          import android.widget.FrameLayout;
           import android.widget.LinearLayout;
           import android.widget.TextView;
+          import java.util.ArrayList;
+          import java.util.Iterator;
+          import java.util.List;
+          import java.util.Random;
 
           public class MainActivity extends Activity {
-              private int tankHp = 100;
+              private static class Target {
+                  float x, y, vx, vy, radius;
+                  int hp, maxHp;
+                  int hitFlash;
+
+                  Target(float x, float y, float vx, float vy, float radius, int hp) {
+                      this.x = x;
+                      this.y = y;
+                      this.vx = vx;
+                      this.vy = vy;
+                      this.radius = radius;
+                      this.hp = hp;
+                      this.maxHp = hp;
+                      this.hitFlash = 0;
+                  }
+              }
+
+              private static class Explosion {
+                  float x, y, radius;
+                  int life;
+
+                  Explosion(float x, float y, float radius) {
+                      this.x = x;
+                      this.y = y;
+                      this.radius = radius;
+                      this.life = 14;
+                  }
+              }
+
+              private int score = 0;
+              private int wave = 1;
               private int modeIndex = 0;
               private final String[] modes = {"RPG", "شواظ", "هاون"};
               private final int[] dmg = {35, 50, 40};
-              private final int[] ammo = {3, 3, 3};
-              private TextView tvStatus;
+              private final int[] ammo = {4, 3, 3};
+              private final List<Target> targets = new ArrayList<>();
+              private final List<Explosion> explosions = new ArrayList<>();
+              private float aimX = -1f, aimY = -1f;
+              private final Random random = new Random();
+
+              private TextView tvHud;
               private Button btnMode;
+              private GameArenaView arenaView;
+              private final Handler handler = new Handler(Looper.getMainLooper());
+
+              private final Runnable loopRunnable = new Runnable() {
+                  @Override
+                  public void run() {
+                      updateSimulation();
+                      if (arenaView != null) {
+                          arenaView.invalidate();
+                      }
+                      handler.postDelayed(this, 25);
+                  }
+              };
 
               @Override
               protected void onCreate(Bundle savedInstanceState) {
@@ -115,85 +176,288 @@ jobs:
 
                   LinearLayout root = new LinearLayout(this);
                   root.setOrientation(LinearLayout.VERTICAL);
-                  root.setBackgroundColor(Color.parseColor("#181C18"));
-                  root.setPadding(36, 60, 36, 48);
-                  root.setGravity(Gravity.CENTER_HORIZONTAL);
+                  root.setBackgroundColor(Color.parseColor("#141814"));
 
-                  TextView title = new TextView(this);
-                  title.setText("STRIKE ZONE - FIELD");
-                  title.setTextColor(Color.parseColor("#D9C58E"));
-                  title.setTextSize(24f);
-                  title.setPadding(0, 0, 0, 24);
-                  root.addView(title);
+                  tvHud = new TextView(this);
+                  tvHud.setTextColor(Color.parseColor("#E6D399"));
+                  tvHud.setTextSize(16f);
+                  tvHud.setPadding(24, 24, 24, 16);
+                  tvHud.setBackgroundColor(Color.parseColor("#1E241E"));
+                  updateHudText();
+                  root.addView(tvHud);
 
-                  tvStatus = new TextView(this);
-                  tvStatus.setTextColor(Color.WHITE);
-                  tvStatus.setTextSize(18f);
-                  tvStatus.setGravity(Gravity.CENTER);
-                  tvStatus.setPadding(0, 20, 0, 40);
-                  updateHud();
-                  root.addView(tvStatus);
+                  arenaView = new GameArenaView(this);
+                  LinearLayout.LayoutParams arenaParams = new LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
+                  arenaView.setLayoutParams(arenaParams);
+                  root.addView(arenaView);
+
+                  LinearLayout controls = new LinearLayout(this);
+                  controls.setOrientation(LinearLayout.VERTICAL);
+                  controls.setBackgroundColor(Color.parseColor("#1B201B"));
+                  controls.setPadding(20, 14, 20, 20);
+
+                  LinearLayout row1 = new LinearLayout(this);
+                  row1.setOrientation(LinearLayout.HORIZONTAL);
 
                   btnMode = new Button(this);
                   btnMode.setText("الوسيلة: " + modes[modeIndex]);
-                  btnMode.setTextSize(18f);
+                  btnMode.setTextSize(15f);
+                  LinearLayout.LayoutParams modeParams = new LinearLayout.LayoutParams(
+                          0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  modeParams.setMargins(0, 0, 8, 0);
+                  btnMode.setLayoutParams(modeParams);
                   btnMode.setOnClickListener(v -> {
                       modeIndex = (modeIndex + 1) % modes.length;
                       btnMode.setText("الوسيلة: " + modes[modeIndex]);
-                      updateHud();
+                      updateHudText();
                   });
-                  root.addView(btnMode);
-
-                  Button btnFire = new Button(this);
-                  btnFire.setText("إطلاق");
-                  btnFire.setTextSize(20f);
-                  btnFire.setBackgroundColor(Color.parseColor("#8C2D19"));
-                  btnFire.setTextColor(Color.WHITE);
-                  LinearLayout.LayoutParams fireParams = new LinearLayout.LayoutParams(
-                          LinearLayout.LayoutParams.MATCH_PARENT, 150);
-                  fireParams.setMargins(0, 24, 0, 16);
-                  btnFire.setLayoutParams(fireParams);
-                  btnFire.setOnClickListener(v -> {
-                      if (tankHp <= 0) return;
-                      if (ammo[modeIndex] <= 0) {
-                          tvStatus.setText("نفدت ذخيرة " + modes[modeIndex] + " — اضغط تلقيم");
-                          return;
-                      }
-                      ammo[modeIndex]--;
-                      tankHp = Math.max(0, tankHp - dmg[modeIndex]);
-                      updateHud();
-                  });
-                  root.addView(btnFire);
+                  row1.addView(btnMode);
 
                   Button btnReload = new Button(this);
                   btnReload.setText("تلقيم");
-                  btnReload.setTextSize(18f);
+                  btnReload.setTextSize(15f);
+                  LinearLayout.LayoutParams reloadParams = new LinearLayout.LayoutParams(
+                          0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  reloadParams.setMargins(8, 0, 0, 0);
+                  btnReload.setLayoutParams(reloadParams);
                   btnReload.setOnClickListener(v -> {
-                      ammo[modeIndex] = 3;
-                      updateHud();
+                      for (int i = 0; i < ammo.length; i++) ammo[i] = 4;
+                      updateHudText();
                   });
-                  root.addView(btnReload);
+                  row1.addView(btnReload);
+                  controls.addView(row1);
 
-                  Button btnReset = new Button(this);
-                  btnReset.setText("جولة جديدة");
-                  btnReset.setTextSize(18f);
-                  LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(
-                          LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                  resetParams.setMargins(0, 24, 0, 0);
-                  btnReset.setLayoutParams(resetParams);
-                  btnReset.setOnClickListener(v -> {
-                      tankHp = 100;
-                      for (int i = 0; i < ammo.length; i++) ammo[i] = 3;
-                      updateHud();
-                  });
-                  root.addView(btnReset);
+                  Button btnFire = new Button(this);
+                  btnFire.setText("إطلاق على الهدف المحدّد");
+                  btnFire.setTextSize(17f);
+                  btnFire.setBackgroundColor(Color.parseColor("#992B1B"));
+                  btnFire.setTextColor(Color.WHITE);
+                  LinearLayout.LayoutParams fireParams = new LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT, 125);
+                  fireParams.setMargins(0, 12, 0, 10);
+                  btnFire.setLayoutParams(fireParams);
+                  btnFire.setOnClickListener(v -> fireAtAim());
+                  controls.addView(btnFire);
 
+                  Button btnNextWave = new Button(this);
+                  btnNextWave.setText("موجة / جولة جديدة");
+                  btnNextWave.setTextSize(14f);
+                  btnNextWave.setOnClickListener(v -> startWave(1, true));
+                  controls.addView(btnNextWave);
+
+                  root.addView(controls);
                   setContentView(root);
+
+                  arenaView.post(() -> startWave(1, true));
               }
 
-              private void updateHud() {
-                  String hpText = tankHp > 0 ? ("الآلية: " + tankHp + "%") : "الآلية مُدمّرة!";
-                  tvStatus.setText(hpText + "\nالذخيرة (" + modes[modeIndex] + "): " + ammo[modeIndex]);
+              private void startWave(int newWave, boolean resetScore) {
+                  wave = newWave;
+                  if (resetScore) score = 0;
+                  targets.clear();
+                  explosions.clear();
+
+                  int w = Math.max(400, arenaView.getWidth());
+                  int h = Math.max(500, arenaView.getHeight());
+                  aimX = w * 0.5f;
+                  aimY = h * 0.45f;
+
+                  int count = Math.min(5, 2 + wave);
+                  for (int i = 0; i < count; i++) {
+                      float r = 56f;
+                      float tx = r + 30 + random.nextFloat() * Math.max(100, w - (r * 2 + 60));
+                      float ty = r + 50 + random.nextFloat() * Math.max(120, h * 0.72f);
+                      float speed = 4.5f + wave * 1.1f;
+                      float vx = (random.nextBoolean() ? 1 : -1) * speed;
+                      float vy = (random.nextBoolean() ? 1 : -1) * (speed * 0.65f);
+                      targets.add(new Target(tx, ty, vx, vy, r, 100));
+                  }
+                  updateHudText();
+              }
+
+              private void fireAtAim() {
+                  if (ammo[modeIndex] <= 0) {
+                      tvHud.setText("نفدت الذخيرة (" + modes[modeIndex] + ") — اضغط تلقيم!");
+                      return;
+                  }
+                  if (targets.isEmpty()) {
+                      tvHud.setText("تم إسقاط جميع أهداف الموجة! اضغط موجة / جولة جديدة");
+                      return;
+                  }
+
+                  ammo[modeIndex]--;
+                  explosions.add(new Explosion(aimX, aimY, 44f));
+
+                  Iterator<Target> it = targets.iterator();
+                  while (it.hasNext()) {
+                      Target t = it.next();
+                      float dx = t.x - aimX;
+                      float dy = t.y - aimY;
+                      float dist = (float) Math.sqrt(dx * dx + dy * dy);
+                      if (dist <= t.radius + 45f) {
+                          t.hp -= dmg[modeIndex];
+                          t.hitFlash = 7;
+                          explosions.add(new Explosion(t.x, t.y, t.radius + 18f));
+                          if (t.hp <= 0) {
+                              score += 100;
+                              it.remove();
+                          }
+                      }
+                  }
+
+                  if (targets.isEmpty()) {
+                      startWave(wave + 1, false);
+                  } else {
+                      updateHudText();
+                  }
+              }
+
+              private void updateSimulation() {
+                  int w = arenaView != null ? arenaView.getWidth() : 0;
+                  int h = arenaView != null ? arenaView.getHeight() : 0;
+                  if (w <= 0 || h <= 0) return;
+
+                  for (Target t : targets) {
+                      t.x += t.vx;
+                      t.y += t.vy;
+                      if (t.x - t.radius < 12f) {
+                          t.x = 12f + t.radius;
+                          t.vx = Math.abs(t.vx);
+                      } else if (t.x + t.radius > w - 12f) {
+                          t.x = w - 12f - t.radius;
+                          t.vx = -Math.abs(t.vx);
+                      }
+
+                      if (t.y - t.radius < 20f) {
+                          t.y = 20f + t.radius;
+                          t.vy = Math.abs(t.vy);
+                      } else if (t.y + t.radius > h - 24f) {
+                          t.y = h - 24f - t.radius;
+                          t.vy = -Math.abs(t.vy);
+                      }
+
+                      if (t.hitFlash > 0) t.hitFlash--;
+                  }
+
+                  Iterator<Explosion> exIt = explosions.iterator();
+                  while (exIt.hasNext()) {
+                      Explosion ex = exIt.next();
+                      ex.radius += 5.5f;
+                      ex.life--;
+                      if (ex.life <= 0) {
+                          exIt.remove();
+                      }
+                  }
+              }
+
+              private void updateHudText() {
+                  if (tvHud == null) return;
+                  tvHud.setText("الموجة: " + wave + " | النقاط: " + score +
+                          " | الأهداف: " + targets.size() +
+                          "\nالذخيرة (" + modes[modeIndex] + "): " + ammo[modeIndex] +
+                          " — المس الميدان للتصويب ثم أطلق");
+              }
+
+              @Override
+              protected void onResume() {
+                  super.onResume();
+                  handler.removeCallbacks(loopRunnable);
+                  handler.post(loopRunnable);
+              }
+
+              @Override
+              protected void onPause() {
+                  super.onPause();
+                  handler.removeCallbacks(loopRunnable);
+              }
+
+              private class GameArenaView extends View {
+                  private final Paint gridPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint targetPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint hpBgPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint hpFillPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint aimPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+                  private final Paint boomPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+                  GameArenaView(Context context) {
+                      super(context);
+                      gridPaint.setColor(Color.parseColor("#243024"));
+                      gridPaint.setStrokeWidth(2f);
+
+                      hpBgPaint.setColor(Color.parseColor("#3B3B3B"));
+                      hpFillPaint.setColor(Color.parseColor("#4CAF50"));
+
+                      aimPaint.setColor(Color.parseColor("#FF5252"));
+                      aimPaint.setStyle(Paint.Style.STROKE);
+                      aimPaint.setStrokeWidth(4f);
+
+                      boomPaint.setColor(Color.parseColor("#FFAB40"));
+                      boomPaint.setStyle(Paint.Style.STROKE);
+                      boomPaint.setStrokeWidth(5f);
+                  }
+
+                  @Override
+                  public boolean onTouchEvent(MotionEvent event) {
+                      if (event.getAction() == MotionEvent.ACTION_DOWN ||
+                              event.getAction() == MotionEvent.ACTION_MOVE) {
+                          aimX = event.getX();
+                          aimY = event.getY();
+                          invalidate();
+                          return true;
+                      }
+                      return super.onTouchEvent(event);
+                  }
+
+                  @Override
+                  protected void onDraw(Canvas canvas) {
+                      super.onDraw(canvas);
+                      int w = getWidth();
+                      int h = getHeight();
+                      canvas.drawColor(Color.parseColor("#151B15"));
+
+                      float step = 80f;
+                      for (float x = 0; x < w; x += step) {
+                          canvas.drawLine(x, 0, x, h, gridPaint);
+                      }
+                      for (float y = 0; y < h; y += step) {
+                          canvas.drawLine(0, y, w, y, gridPaint);
+                      }
+
+                      for (Target t : targets) {
+                          targetPaint.setStyle(Paint.Style.FILL);
+                          targetPaint.setColor(t.hitFlash > 0
+                                  ? Color.parseColor("#FFF176")
+                                  : Color.parseColor("#4E5D46"));
+                          canvas.drawCircle(t.x, t.y, t.radius, targetPaint);
+
+                          targetPaint.setStyle(Paint.Style.STROKE);
+                          targetPaint.setStrokeWidth(4f);
+                          targetPaint.setColor(Color.parseColor("#C5B47E"));
+                          canvas.drawCircle(t.x, t.y, t.radius, targetPaint);
+
+                          float barW = t.radius * 1.6f;
+                          float barH = 12f;
+                          float left = t.x - barW / 2f;
+                          float top = t.y - t.radius - 24f;
+                          canvas.drawRect(left, top, left + barW, top + barH, hpBgPaint);
+
+                          float ratio = Math.max(0f, Math.min(1f, t.hp / (float) t.maxHp));
+                          hpFillPaint.setColor(ratio > 0.4f ? Color.parseColor("#66BB6A") : Color.parseColor("#EF5350"));
+                          canvas.drawRect(left, top, left + barW * ratio, top + barH, hpFillPaint);
+                      }
+
+                      for (Explosion ex : explosions) {
+                          boomPaint.setAlpha(Math.min(255, ex.life * 18));
+                          canvas.drawCircle(ex.x, ex.y, ex.radius, boomPaint);
+                      }
+
+                      if (aimX >= 0 && aimY >= 0) {
+                          canvas.drawCircle(aimX, aimY, 34f, aimPaint);
+                          canvas.drawLine(aimX - 52f, aimY, aimX + 52f, aimY, aimPaint);
+                          canvas.drawLine(aimX, aimY - 52f, aimX, aimY + 52f, aimPaint);
+                      }
+                  }
               }
           }
           EOF
