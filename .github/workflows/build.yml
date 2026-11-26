@@ -1,4 +1,4 @@
-name: Build APK
+name: Build Android APK
 on: [push, workflow_dispatch]
 jobs:
   build:
@@ -9,16 +9,186 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Setup Godot & Templates
+      - uses: android-actions/setup-android@v3
+      - name: Create & Build Simple Android App
         run: |
-          mkdir -p ~/.local/share/godot/export_templates/4.3.stable ~/.android
-          curl -sL "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip" -o g.zip && unzip -qo g.zip && mv Godot_v4.3-stable_linux.x86_64 /usr/local/bin/godot && chmod +x /usr/local/bin/godot
-          curl -sL "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz" -o t.zip && unzip -qo t.zip && mv templates/* ~/.local/share/godot/export_templates/4.3.stable/
-          keytool -genkeypair -noprompt -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 9999 -dname "CN=Android Debug,O=Android,C=US"
-      - name: Export APK
-        run: |
+          mkdir -p app/src/main/java/com/abusoliman/strikezone app/src/main/res/layout app/src/main/res/values
+          cat << 'EOF' > settings.gradle
+          rootProject.name = "StrikeZone"
+          include ':app'
+          EOF
+          cat << 'EOF' > build.gradle
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.2.2'
+              }
+          }
+          allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          EOF
+          cat << 'EOF' > app/build.gradle
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace 'com.abusoliman.strikezone'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.abusoliman.strikezone"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+          }
+          EOF
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <application
+                  android:label="Strike Zone"
+                  android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+          cat << 'EOF' > app/src/main/res/values/strings.xml
+          <resources>
+              <string name="app_name">Strike Zone</string>
+          </resources>
+          EOF
+          cat << 'EOF' > app/src/main/java/com/abusoliman/strikezone/MainActivity.java
+          package com.abusoliman.strikezone;
+
+          import android.app.Activity;
+          import android.graphics.Color;
+          import android.os.Bundle;
+          import android.view.Gravity;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.TextView;
+
+          public class MainActivity extends Activity {
+              private int tankHp = 100;
+              private int modeIndex = 0;
+              private final String[] modes = {"RPG", "شواظ", "هاون"};
+              private final int[] dmg = {35, 50, 40};
+              private final int[] ammo = {3, 3, 3};
+              private TextView tvStatus;
+              private Button btnMode;
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+
+                  LinearLayout root = new LinearLayout(this);
+                  root.setOrientation(LinearLayout.VERTICAL);
+                  root.setBackgroundColor(Color.parseColor("#181C18"));
+                  root.setPadding(36, 60, 36, 48);
+                  root.setGravity(Gravity.CENTER_HORIZONTAL);
+
+                  TextView title = new TextView(this);
+                  title.setText("STRIKE ZONE - FIELD");
+                  title.setTextColor(Color.parseColor("#D9C58E"));
+                  title.setTextSize(24f);
+                  title.setPadding(0, 0, 0, 24);
+                  root.addView(title);
+
+                  tvStatus = new TextView(this);
+                  tvStatus.setTextColor(Color.WHITE);
+                  tvStatus.setTextSize(18f);
+                  tvStatus.setGravity(Gravity.CENTER);
+                  tvStatus.setPadding(0, 20, 0, 40);
+                  updateHud();
+                  root.addView(tvStatus);
+
+                  btnMode = new Button(this);
+                  btnMode.setText("الوسيلة: " + modes[modeIndex]);
+                  btnMode.setTextSize(18f);
+                  btnMode.setOnClickListener(v -> {
+                      modeIndex = (modeIndex + 1) % modes.length;
+                      btnMode.setText("الوسيلة: " + modes[modeIndex]);
+                      updateHud();
+                  });
+                  root.addView(btnMode);
+
+                  Button btnFire = new Button(this);
+                  btnFire.setText("إطلاق");
+                  btnFire.setTextSize(20f);
+                  btnFire.setBackgroundColor(Color.parseColor("#8C2D19"));
+                  btnFire.setTextColor(Color.WHITE);
+                  LinearLayout.LayoutParams fireParams = new LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT, 150);
+                  fireParams.setMargins(0, 24, 0, 16);
+                  btnFire.setLayoutParams(fireParams);
+                  btnFire.setOnClickListener(v -> {
+                      if (tankHp <= 0) return;
+                      if (ammo[modeIndex] <= 0) {
+                          tvStatus.setText("نفدت ذخيرة " + modes[modeIndex] + " — اضغط تلقيم");
+                          return;
+                      }
+                      ammo[modeIndex]--;
+                      tankHp = Math.max(0, tankHp - dmg[modeIndex]);
+                      updateHud();
+                  });
+                  root.addView(btnFire);
+
+                  Button btnReload = new Button(this);
+                  btnReload.setText("تلقيم");
+                  btnReload.setTextSize(18f);
+                  btnReload.setOnClickListener(v -> {
+                      ammo[modeIndex] = 3;
+                      updateHud();
+                  });
+                  root.addView(btnReload);
+
+                  Button btnReset = new Button(this);
+                  btnReset.setText("جولة جديدة");
+                  btnReset.setTextSize(18f);
+                  LinearLayout.LayoutParams resetParams = new LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                  resetParams.setMargins(0, 24, 0, 0);
+                  btnReset.setLayoutParams(resetParams);
+                  btnReset.setOnClickListener(v -> {
+                      tankHp = 100;
+                      for (int i = 0; i < ammo.length; i++) ammo[i] = 3;
+                      updateHud();
+                  });
+                  root.addView(btnReset);
+
+                  setContentView(root);
+              }
+
+              private void updateHud() {
+                  String hpText = tankHp > 0 ? ("الآلية: " + tankHp + "%") : "الآلية مُدمّرة!";
+                  tvStatus.setText(hpText + "\nالذخيرة (" + modes[modeIndex] + "): " + ammo[modeIndex]);
+              }
+          }
+          EOF
+          gradle assembleRelease --no-daemon
           mkdir -p build
-          godot --headless --export-debug "Android" build/Game.apk
+          cp app/build/outputs/apk/release/app-release-unsigned.apk build/Game.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Game-APK
