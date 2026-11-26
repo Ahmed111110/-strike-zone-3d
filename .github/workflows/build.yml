@@ -4,7 +4,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
       ANDROID_HOME: /usr/local/lib/android/sdk
     steps:
       - uses: actions/checkout@v4
@@ -12,16 +11,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Android SDK Packages
+      - name: Setup Android SDK
         run: |
-          mkdir -p $ANDROID_HOME/cmdline-tools
+          mkdir -p $ANDROID_HOME/cmdline-tools build ~/.android
           if [ ! -d "$ANDROID_HOME/cmdline-tools/latest" ]; then
             curl -sL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o sdk.zip
             unzip -qo sdk.zip -d $ANDROID_HOME/cmdline-tools
-            mv $ANDROID_HOME/cmdline-tools/cmdline-tools$ANDROID_HOME/cmdline-tools/latest
+            mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
           fi
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_HOME "platform-tools" "platforms;android-34" "build-tools;34.0.0" > /dev/null
-      - name: Create & Build Android APK
+          keytool -genkeypair -noprompt -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 9999 -dname "CN=Android Debug,O=Android,C=US"
+      - name: Build & Sign APK
         run: |
           mkdir -p app/src/main/java/com/abusoliman/strikezone app/src/main/res/values
           cat << 'EOF' > settings.gradle
@@ -78,7 +78,7 @@ jobs:
                       android:screenOrientation="portrait">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN" />
-                          <category android:name="android.intent.action.LAUNCHER" />
+                          <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
               </application>
@@ -192,3 +192,14 @@ jobs:
               }
 
               private void updateHud() {
+                  String hpText = tankHp > 0 ? ("الآلية: " + tankHp + "%") : "الآلية مُدمّرة!";
+                  tvStatus.setText(hpText + "\nالذخيرة (" + modes[modeIndex] + "): " + ammo[modeIndex]);
+              }
+          }
+          EOF
+          gradle assembleRelease --no-daemon
+          $ANDROID_HOME/build-tools/34.0.0/apksigner sign --ks ~/.android/debug.keystore --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android --out build/Game.apk app/build/outputs/apk/release/app-release-unsigned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Game-APK
+          path: build/Game.apk
