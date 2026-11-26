@@ -11,13 +11,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Setup Godot & Android SDK
+      - name: Setup Environment
         run: |
           mkdir -p ~/.local/share/godot/export_templates/4.3.stable ~/.android ~/.config/godot $ANDROID_HOME/cmdline-tools build
-          curl -sL "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip" -o g.zip && unzip -qo g.zip && mv Godot_v4.3-stable_linux.x86_64 /usr/local/bin/godot && chmod +x /usr/local/bin/godot
-          curl -sL "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz" -o t.zip && unzip -qo t.zip && mv templates/* ~/.local/share/godot/export_templates/4.3.stable/
           curl -sL "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" -o sdk.zip && unzip -qo sdk.zip -d $ANDROID_HOME/cmdline-tools && mv $ANDROID_HOME/cmdline-tools/cmdline-tools $ANDROID_HOME/cmdline-tools/latest
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --sdk_root=$ANDROID_HOME "platform-tools" "platforms;android-34" "build-tools;34.0.0" > /dev/null
+          curl -sL "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip" -o g.zip && unzip -qo g.zip && mv Godot_v4.3-stable_linux.x86_64 /usr/local/bin/godot && chmod +x /usr/local/bin/godot
+          curl -sL "https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz" -o t.zip && unzip -qo t.zip && mv templates/* ~/.local/share/godot/export_templates/4.3.stable/
           keytool -genkeypair -noprompt -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 9999 -dname "CN=Android Debug,O=Android,C=US"
           cat <<EOF > ~/.config/godot/editor_settings-4.3.tres
           [gd_resource type="EditorSettings" format=3]
@@ -28,9 +28,31 @@ jobs:
           export/android/debug_keystore_user = "androiddebugkey"
           export/android/debug_keystore_pass = "android"
           EOF
-      - name: Import & Export APK
+          cat <<EOF > export_presets.cfg
+          [preset.0]
+          name="Android"
+          platform="Android"
+          runnable=true
+          export_path="build/Game.apk"
+          export_filter="all_resources"
+          include_filter=""
+          exclude_filter=""
+          script_export_mode=1
+
+          [preset.0.options]
+          gradle_build/use_gradle_build=false
+          architectures/arm64-v8a=true
+          architectures/armeabi-v7a=false
+          package/unique_name="com.abusoliman.strikezone3d"
+          package/name="Strike Zone 3D"
+          screen/orientation=1
+          keystore/debug="$HOME/.android/debug.keystore"
+          keystore/debug_user="androiddebugkey"
+          keystore/debug_password="android"
+          EOF
+      - name: Export APK
         run: |
-          godot --headless --import
+          ls -la ~/.local/share/godot/export_templates/4.3.stable/
           godot --headless --export-debug "Android" build/Game.apk
       - uses: actions/upload-artifact@v4
         with:
